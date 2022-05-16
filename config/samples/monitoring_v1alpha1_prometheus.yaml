@@ -1,0 +1,6 @@
+apiVersion: monitoring.mroque/v1alpha1
+kind: Prometheus
+metadata:
+  name: prometheus-sample
+spec:
+  image: quay.io/prometheus/prometheus

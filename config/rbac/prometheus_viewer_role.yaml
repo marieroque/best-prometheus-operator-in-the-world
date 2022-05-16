@@ -1,0 +1,20 @@
+# permissions for end users to view prometheuses.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: prometheus-viewer-role
+rules:
+- apiGroups:
+  - monitoring.mroque
+  resources:
+  - prometheuses
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - monitoring.mroque
+  resources:
+  - prometheuses/status
+  verbs:
+  - get
