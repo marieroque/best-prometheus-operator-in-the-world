@@ -45,6 +45,7 @@ const container_image = "quay.io/prometheus/prometheus"
 //+kubebuilder:rbac:groups=monitoring.mroque,resources=prometheuses/status,verbs=get;update;patch
 //+kubebuilder:rbac:groups=monitoring.mroque,resources=prometheuses/finalizers,verbs=update
 //+kubebuilder:rbac:groups=apps,resources=deployments,verbs=get;list;watch;create;update;patch;delete
+//+kubebuilder:rbac:groups=core,resources=configmaps,verbs=get;list;watch;create;update;patch;delete
 //+kubebuilder:rbac:groups=core,resources=pods,verbs=get;list;watch
 
 // Reconcile is part of the main kubernetes reconciliation loop which aims to
@@ -94,25 +95,6 @@ func (r *PrometheusReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 		return ctrl.Result{}, err
 	}
 
-	// Check if the configmap already exists, if not create a new one
-	foundConfigMap := &corev1.ConfigMap{}
-	err = r.Get(ctx, types.NamespacedName{Name: prometheus.Name, Namespace: prometheus.Namespace}, foundConfigMap)
-	if err != nil && errors.IsNotFound(err) {
-		// Define a new configmap
-		cfm := r.configmapForPrometheus(prometheus)
-		log.Info("Creating a new Configmap", "Configmap.Namespace", cfm.Namespace, "Configmap.Name", cfm.Name)
-		err = r.Create(ctx, cfm)
-		if err != nil {
-			log.Error(err, "Failed to create new Configmap", "Configmap.Namespace", cfm.Namespace, "Configmap.Name", cfm.Name)
-			return ctrl.Result{}, err
-		}
-		// Configmap created successfully - return and requeue
-		return ctrl.Result{Requeue: true}, nil
-	} else if err != nil {
-		log.Error(err, "Failed to get Configmap")
-		return ctrl.Result{}, err
-	}
-
 	// This point, we have the deployment object created
 	// Ensure the image version is same as the spec
 	img := container_image + ":v" + *prometheus.Spec.Version
@@ -129,39 +111,26 @@ func (r *PrometheusReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 		return ctrl.Result{Requeue: true}, nil
 	}
 
-	return ctrl.Result{}, nil
-}
+	// Check if the configmap already exists, if not create a new one
+	foundConfigMap := &corev1.ConfigMap{}
+	err = r.Get(ctx, types.NamespacedName{Name: prometheus.Name + "-configmap", Namespace: prometheus.Namespace}, foundConfigMap)
+	if err != nil && errors.IsNotFound(err) {
+		// Define a new configmap
+		cfm := r.configmapForPrometheus(prometheus)
+		log.Info("Creating a new Configmap", "Configmap.Namespace", cfm.Namespace, "Configmap.Name", cfm.Name)
+		err = r.Create(ctx, cfm)
+		if err != nil {
+			log.Error(err, "Failed to create new Configmap", "Configmap.Namespace", cfm.Namespace, "Configmap.Name", cfm.Name)
+			return ctrl.Result{}, err
+		}
+		// Configmap created successfully - return and requeue
+		return ctrl.Result{Requeue: true}, nil
+	} else if err != nil {
+		log.Error(err, "Failed to get Configmap")
+		return ctrl.Result{}, err
+	}
 
-// configmapForPrometheus returns a prometheus ConfigMap object
-func (r *PrometheusReconciler) configmapForPrometheus(cr *monitoringv1alpha1.Prometheus) *corev1.ConfigMap {
-	labels := map[string]string{
-		"app": cr.Name,
-	}
-	cf := &corev1.ConfigMap{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      cr.Name + "-configmap",
-			Namespace: cr.Namespace,
-			Labels:    labels,
-		},
-		Data: map[string]string{
-			"prometheus.yml": `scrape_configs:
-      - job_name: 'best-prometheus-operator'
-        kubernetes_sd_configs:
-        - role: pod
-        relabel_configs:
-        - action: labelmap
-          regex: __meta_kubernetes_pod_label_(.+)
-        - source_labels: [__meta_kubernetes_namespace]
-          action: replace
-          target_label: kubernetes_namespace
-        - source_labels: [__meta_kubernetes_pod_name]
-          action: replace
-          target_label: kubernetes_pod_name`, //yaml.Marshal(&cr.Spec.ScrapeConfigs),
-		},
-	}
-	// Set Prometheus instance as the owner and controller
-	ctrl.SetControllerReference(cr, cf, r.Scheme)
-	return cf
+	return ctrl.Result{}, nil
 }
 
 // deploymentForPrometheus returns a prometheus Deployment object
@@ -201,6 +170,7 @@ func (r *PrometheusReconciler) deploymentForPrometheus(cr *monitoringv1alpha1.Pr
 							},
 						},
 					}},
+					ServiceAccountName: cr.Namespace + "-controller-manager",
 				},
 			},
 		},
@@ -216,10 +186,43 @@ func labelsForPrometheus(name string) map[string]string {
 	return map[string]string{"app": "prometheus", "prometheus_cr": name}
 }
 
+// configmapForPrometheus returns a prometheus ConfigMap object
+func (r *PrometheusReconciler) configmapForPrometheus(cr *monitoringv1alpha1.Prometheus) *corev1.ConfigMap {
+	labels := map[string]string{
+		"app": cr.Name,
+	}
+	cf := &corev1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      cr.Name + "-configmap",
+			Namespace: cr.Namespace,
+			Labels:    labels,
+		},
+		Data: map[string]string{
+			"prometheus.yml": `scrape_configs:
+      - job_name: 'best-prometheus-operator'
+        kubernetes_sd_configs:
+        - role: pod
+        relabel_configs:
+        - action: labelmap
+          regex: __meta_kubernetes_pod_label_(.+)
+        - source_labels: [__meta_kubernetes_namespace]
+          action: replace
+          target_label: kubernetes_namespace
+        - source_labels: [__meta_kubernetes_pod_name]
+          action: replace
+          target_label: kubernetes_pod_name`, //yaml.Marshal(&cr.Spec.ScrapeConfigs),
+		},
+	}
+	// Set Prometheus instance as the owner and controller
+	ctrl.SetControllerReference(cr, cf, r.Scheme)
+	return cf
+}
+
 // SetupWithManager sets up the controller with the Manager.
 func (r *PrometheusReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&monitoringv1alpha1.Prometheus{}).
 		Owns(&appsv1.Deployment{}).
+		Owns(&corev1.ConfigMap{}).
 		Complete(r)
 }
