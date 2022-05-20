@@ -18,59 +18,15 @@ package v1alpha1
 
 import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/runtime"
 )
 
 // EDIT THIS FILE!  THIS IS SCAFFOLDING FOR YOU TO OWN!
 // NOTE: json tags are required.  Any new fields you add must have json tags for the fields to be serialized.
 
-// PrometheusSpec defines the desired state of Prometheus
-/*type PrometheusSpec struct {
-	// INSERT ADDITIONAL SPEC FIELDS - desired state of cluster
-	// Important: Run "make" to regenerate code after modifying this file
-
-	// Foo is an example field of Prometheus. Edit prometheus_types.go to remove/update
-	Foo string `json:"foo,omitempty"`
-}
-
-// PrometheusStatus defines the observed state of Prometheus
-type PrometheusStatus struct {
-	// INSERT ADDITIONAL STATUS FIELD - define observed state of cluster
-	// Important: Run "make" to regenerate code after modifying this file
-}
-
-//+kubebuilder:object:root=true
-//+kubebuilder:subresource:status
-
-// Prometheus is the Schema for the prometheuses API
-type Prometheus struct {
-	metav1.TypeMeta   `json:",inline"`
-	metav1.ObjectMeta `json:"metadata,omitempty"`
-
-	Spec   PrometheusSpec   `json:"spec,omitempty"`
-	Status PrometheusStatus `json:"status,omitempty"`
-}
-
-//+kubebuilder:object:root=true
-
-// PrometheusList contains a list of Prometheus
-type PrometheusList struct {
-	metav1.TypeMeta `json:",inline"`
-	metav1.ListMeta `json:"metadata,omitempty"`
-	Items           []Prometheus `json:"items"`
-}
-
-func init() {
-	SchemeBuilder.Register(&Prometheus{}, &PrometheusList{})
-}*/
-
 // Prometheus defines a Prometheus deployment.
 // +genclient
 // +k8s:openapi-gen=true
-// +kubebuilder:resource:categories="prometheus-operator",shortName="prom"
-// +kubebuilder:printcolumn:name="Version",type="string",JSONPath=".spec.version",description="The version of Prometheus"
-// +kubebuilder:printcolumn:name="Replicas",type="integer",JSONPath=".spec.replicas",description="The desired replicas number of Prometheuses"
-// +kubebuilder:printcolumn:name="Age",type="date",JSONPath=".metadata.creationTimestamp"
+// +kubebuilder:object:root=true
 // +kubebuilder:subresource:status
 type Prometheus struct {
 	metav1.TypeMeta   `json:",inline"`
@@ -86,6 +42,7 @@ type Prometheus struct {
 
 // PrometheusList is a list of Prometheuses.
 // +k8s:openapi-gen=true
+// +kubebuilder:object:root=true
 type PrometheusList struct {
 	metav1.TypeMeta `json:",inline"`
 	// Standard list metadata
@@ -99,11 +56,20 @@ type PrometheusList struct {
 // https://github.com/kubernetes/community/blob/master/contributors/devel/sig-architecture/api-conventions.md#spec-and-status
 // +k8s:openapi-gen=true
 type PrometheusSpec struct {
-	// Image if specified has precedence over baseImage, tag and sha
-	// combinations. Specifying the version is still necessary to ensure the
-	// Prometheus Operator knows what version of Prometheus is being
-	// configured.
-	Image *string `json:"image,omitempty"`
+	// Prometheus image version deployed
+	Version       *string         `json:"version"`
+	ScrapeConfigs []*ScrapeConfig `json:"scrape_configs"`
+}
+
+// ScrapeConfig define a scrape configuration for the prometheus server
+type ScrapeConfig struct {
+	JobName      *string        `json:"job_name"`
+	K8SSDConfigs []*K8SSDConfig `json:"kubernetes_sd_configs"`
+}
+
+// K8SSDConfig define a kubernetes service discovery config
+type K8SSDConfig struct {
+	Role *string `json:"role"`
 }
 
 // PrometheusStatus is the most recent observed status of the Prometheus cluster.
@@ -114,19 +80,6 @@ type PrometheusStatus struct {
 	//TODO
 }
 
-// DeepCopyObject implements the runtime.Object interface.
-func (l *Prometheus) DeepCopyObject() runtime.Object {
-	return l.DeepCopy()
-}
-
-// DeepCopyObject implements the runtime.Object interface.
-func (l *PrometheusList) DeepCopyObject() runtime.Object {
-	return l.DeepCopy()
-}
-
-/*
-
 func init() {
 	SchemeBuilder.Register(&Prometheus{}, &PrometheusList{})
 }
-*/

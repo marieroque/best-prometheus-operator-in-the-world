@@ -31,7 +31,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 
-	v1alpha1 "github.com/marieroque/best-prometheus-operator-in-the-world/api/v1alpha1"
+	monitoringv1alpha1 "github.com/marieroque/best-prometheus-operator-in-the-world/api/v1alpha1"
 	"github.com/marieroque/best-prometheus-operator-in-the-world/controllers"
 	//+kubebuilder:scaffold:imports
 )
@@ -44,7 +44,7 @@ var (
 func init() {
 	utilruntime.Must(clientgoscheme.AddToScheme(scheme))
 
-	utilruntime.Must(v1alpha1.AddToScheme(scheme))
+	utilruntime.Must(monitoringv1alpha1.AddToScheme(scheme))
 	//+kubebuilder:scaffold:scheme
 }
 

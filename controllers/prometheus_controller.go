@@ -17,20 +17,20 @@ limitations under the License.
 package controllers
 
 import (
+	"context"
+	//"gopkg.in/yaml.v3"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 
-	"context"
-
 	"k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	ctrllog "sigs.k8s.io/controller-runtime/pkg/log"
 
-	v1alpha1 "github.com/marieroque/best-prometheus-operator-in-the-world/api/v1alpha1"
+	monitoringv1alpha1 "github.com/marieroque/best-prometheus-operator-in-the-world/api/v1alpha1"
 )
 
 // PrometheusReconciler reconciles a Prometheus object
@@ -39,9 +39,11 @@ type PrometheusReconciler struct {
 	Scheme *runtime.Scheme
 }
 
-//+kubebuilder:rbac:groups=monitoring.task.com,resources=prometheuses,verbs=get;list;watch;create;update;patch;delete
-//+kubebuilder:rbac:groups=monitoring.task.com,resources=prometheuses/status,verbs=get;update;patch
-//+kubebuilder:rbac:groups=monitoring.task.com,resources=prometheuses/finalizers,verbs=update
+const container_image = "quay.io/prometheus/prometheus"
+
+//+kubebuilder:rbac:groups=monitoring.mroque,resources=prometheuses,verbs=get;list;watch;create;update;patch;delete
+//+kubebuilder:rbac:groups=monitoring.mroque,resources=prometheuses/status,verbs=get;update;patch
+//+kubebuilder:rbac:groups=monitoring.mroque,resources=prometheuses/finalizers,verbs=update
 //+kubebuilder:rbac:groups=apps,resources=deployments,verbs=get;list;watch;create;update;patch;delete
 //+kubebuilder:rbac:groups=core,resources=pods,verbs=get;list;watch
 
@@ -58,7 +60,7 @@ func (r *PrometheusReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 	log := ctrllog.FromContext(ctx)
 
 	// Fetch the Prometheus instance
-	prometheus := &v1alpha1.Prometheus{}
+	prometheus := &monitoringv1alpha1.Prometheus{}
 	err := r.Get(ctx, req.NamespacedName, prometheus)
 	if err != nil {
 		if errors.IsNotFound(err) {
@@ -92,17 +94,84 @@ func (r *PrometheusReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 		return ctrl.Result{}, err
 	}
 
+	// Check if the configmap already exists, if not create a new one
+	foundConfigMap := &corev1.ConfigMap{}
+	err = r.Get(ctx, types.NamespacedName{Name: prometheus.Name, Namespace: prometheus.Namespace}, foundConfigMap)
+	if err != nil && errors.IsNotFound(err) {
+		// Define a new configmap
+		cfm := r.configmapForPrometheus(prometheus)
+		log.Info("Creating a new Configmap", "Configmap.Namespace", cfm.Namespace, "Configmap.Name", cfm.Name)
+		err = r.Create(ctx, cfm)
+		if err != nil {
+			log.Error(err, "Failed to create new Configmap", "Configmap.Namespace", cfm.Namespace, "Configmap.Name", cfm.Name)
+			return ctrl.Result{}, err
+		}
+		// Configmap created successfully - return and requeue
+		return ctrl.Result{Requeue: true}, nil
+	} else if err != nil {
+		log.Error(err, "Failed to get Configmap")
+		return ctrl.Result{}, err
+	}
+
+	// This point, we have the deployment object created
+	// Ensure the image version is same as the spec
+	img := container_image + ":v" + *prometheus.Spec.Version
+	if found.Spec.Template.Spec.Containers[0].Image != img {
+		found.Spec.Template.Spec.Containers[0].Image = img
+		log.Info("Updating Deployment", "Deployment.Namespace", found.Namespace, "Deployment.Name", found.Name)
+		err = r.Update(ctx, found)
+		if err != nil {
+			log.Error(err, "Failed to update Deployment", "Deployment.Namespace", found.Namespace, "Deployment.Name", found.Name)
+			return ctrl.Result{}, err
+		}
+		// Spec updated return and requeue
+		// Requeue for any reason other than an error
+		return ctrl.Result{Requeue: true}, nil
+	}
+
 	return ctrl.Result{}, nil
 }
 
+// configmapForPrometheus returns a prometheus ConfigMap object
+func (r *PrometheusReconciler) configmapForPrometheus(cr *monitoringv1alpha1.Prometheus) *corev1.ConfigMap {
+	labels := map[string]string{
+		"app": cr.Name,
+	}
+	cf := &corev1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      cr.Name + "-configmap",
+			Namespace: cr.Namespace,
+			Labels:    labels,
+		},
+		Data: map[string]string{
+			"prometheus.yml": `scrape_configs:
+      - job_name: 'best-prometheus-operator'
+        kubernetes_sd_configs:
+        - role: pod
+        relabel_configs:
+        - action: labelmap
+          regex: __meta_kubernetes_pod_label_(.+)
+        - source_labels: [__meta_kubernetes_namespace]
+          action: replace
+          target_label: kubernetes_namespace
+        - source_labels: [__meta_kubernetes_pod_name]
+          action: replace
+          target_label: kubernetes_pod_name`, //yaml.Marshal(&cr.Spec.ScrapeConfigs),
+		},
+	}
+	// Set Prometheus instance as the owner and controller
+	ctrl.SetControllerReference(cr, cf, r.Scheme)
+	return cf
+}
+
 // deploymentForPrometheus returns a prometheus Deployment object
-func (r *PrometheusReconciler) deploymentForPrometheus(m *v1alpha1.Prometheus) *appsv1.Deployment {
-	ls := labelsForPrometheus(m.Name)
+func (r *PrometheusReconciler) deploymentForPrometheus(cr *monitoringv1alpha1.Prometheus) *appsv1.Deployment {
+	ls := labelsForPrometheus(cr.Name)
 
 	dep := &appsv1.Deployment{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      m.Name,
-			Namespace: m.Namespace,
+			Name:      cr.Name,
+			Namespace: cr.Namespace,
 		},
 		Spec: appsv1.DeploymentSpec{
 			Selector: &metav1.LabelSelector{
@@ -114,15 +183,30 @@ func (r *PrometheusReconciler) deploymentForPrometheus(m *v1alpha1.Prometheus) *
 				},
 				Spec: corev1.PodSpec{
 					Containers: []corev1.Container{{
-						Image: *m.Spec.Image,
 						Name:  "prometheus",
+						Image: container_image + ":v" + *cr.Spec.Version,
+						Args:  []string{"--config.file=/etc/prometheus/prometheus.yml"},
+						VolumeMounts: []corev1.VolumeMount{{
+							MountPath: "/etc/prometheus/",
+							Name:      "prometheus-config-volume",
+						}},
+					}},
+					Volumes: []corev1.Volume{{
+						Name: "prometheus-config-volume",
+						VolumeSource: corev1.VolumeSource{
+							ConfigMap: &corev1.ConfigMapVolumeSource{
+								LocalObjectReference: corev1.LocalObjectReference{
+									Name: cr.Name + "-configmap",
+								},
+							},
+						},
 					}},
 				},
 			},
 		},
 	}
 	// Set Prometheus instance as the owner and controller
-	ctrl.SetControllerReference(m, dep, r.Scheme)
+	ctrl.SetControllerReference(cr, dep, r.Scheme)
 	return dep
 }
 
@@ -135,7 +219,7 @@ func labelsForPrometheus(name string) map[string]string {
 // SetupWithManager sets up the controller with the Manager.
 func (r *PrometheusReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
-		For(&v1alpha1.Prometheus{}).
+		For(&monitoringv1alpha1.Prometheus{}).
 		Owns(&appsv1.Deployment{}).
 		Complete(r)
 }

@@ -13,4 +13,4 @@ kind: Kustomization
 images:
 - name: controller
   newName: mroque/best-prometheus-operator-in-the-world
-  newTag: 0.0.1
+  newTag: latest
