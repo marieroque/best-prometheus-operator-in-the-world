@@ -63,13 +63,25 @@ type PrometheusSpec struct {
 
 // ScrapeConfig define a scrape configuration for the prometheus server
 type ScrapeConfig struct {
-	JobName      *string        `json:"job_name"`
-	K8SSDConfigs []*K8SSDConfig `json:"kubernetes_sd_configs"`
+	JobName        *string          `json:"job_name"`
+	K8SSDConfigs   []*K8SSDConfig   `json:"kubernetes_sd_configs"`
+	RelabelConfigs []*RelabelConfig `json:"relabel_configs,omitempty"`
 }
 
 // K8SSDConfig define a kubernetes service discovery config
 type K8SSDConfig struct {
 	Role *string `json:"role"`
+}
+
+type RelabelConfig struct {
+	// +optional
+	SourceLabels []*string `json:"source_labels,omitempty"`
+	// +optional
+	Action *string `json:"action,omitempty"`
+	// +optional
+	Regex *string `json:"regex,omitempty"`
+	// +optional
+	TargetLabel *string `json:"target_label,omitempty"`
 }
 
 // PrometheusStatus is the most recent observed status of the Prometheus cluster.

@@ -54,6 +54,21 @@ spec:
                         - role
                         type: object
                       type: array
+                    relabel_configs:
+                      items:
+                        properties:
+                          action:
+                            type: string
+                          regex:
+                            type: string
+                          source_labels:
+                            items:
+                              type: string
+                            type: array
+                          target_label:
+                            type: string
+                        type: object
+                      type: array
                   required:
                   - job_name
                   - kubernetes_sd_configs

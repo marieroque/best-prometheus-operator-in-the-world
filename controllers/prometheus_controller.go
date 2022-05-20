@@ -18,7 +18,8 @@ package controllers
 
 import (
 	"context"
-	//"gopkg.in/yaml.v3"
+	"encoding/json"
+	"github.com/ghodss/yaml"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
@@ -189,8 +190,19 @@ func labelsForPrometheus(name string) map[string]string {
 // configmapForPrometheus returns a prometheus ConfigMap object
 func (r *PrometheusReconciler) configmapForPrometheus(cr *monitoringv1alpha1.Prometheus) *corev1.ConfigMap {
 	labels := map[string]string{
-		"app": cr.Name,
+		"app": cr.Name + "-configmap",
 	}
+
+	dataJson, err := json.Marshal(&cr.Spec.ScrapeConfigs)
+	if err != nil {
+		return nil
+	}
+
+	dataYaml, err := yaml.JSONToYAML(dataJson)
+	if err != nil {
+		return nil
+	}
+
 	cf := &corev1.ConfigMap{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      cr.Name + "-configmap",
@@ -199,18 +211,7 @@ func (r *PrometheusReconciler) configmapForPrometheus(cr *monitoringv1alpha1.Pro
 		},
 		Data: map[string]string{
 			"prometheus.yml": `scrape_configs:
-      - job_name: 'best-prometheus-operator'
-        kubernetes_sd_configs:
-        - role: pod
-        relabel_configs:
-        - action: labelmap
-          regex: __meta_kubernetes_pod_label_(.+)
-        - source_labels: [__meta_kubernetes_namespace]
-          action: replace
-          target_label: kubernetes_namespace
-        - source_labels: [__meta_kubernetes_pod_name]
-          action: replace
-          target_label: kubernetes_pod_name`, //yaml.Marshal(&cr.Spec.ScrapeConfigs),
+` + string(dataYaml),
 		},
 	}
 	// Set Prometheus instance as the owner and controller
