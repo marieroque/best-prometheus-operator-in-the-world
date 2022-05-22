@@ -57,6 +57,7 @@ type PrometheusList struct {
 // +k8s:openapi-gen=true
 type PrometheusSpec struct {
 	// Prometheus image version deployed
+	// +kubebuilder:validation:Pattern=^[0-9]+\.[0-9]+\.[0-9]+$
 	Version       *string         `json:"version"`
 	ScrapeConfigs []*ScrapeConfig `json:"scrape_configs"`
 }
@@ -70,6 +71,7 @@ type ScrapeConfig struct {
 
 // K8SSDConfig define a kubernetes service discovery config
 type K8SSDConfig struct {
+	// +kubebuilder:validation:Enum=node;pod;service;ingress
 	Role *string `json:"role"`
 }
 

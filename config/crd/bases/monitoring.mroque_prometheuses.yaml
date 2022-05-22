@@ -49,6 +49,11 @@ spec:
                           config
                         properties:
                           role:
+                            enum:
+                            - node
+                            - pod
+                            - service
+                            - ingress
                             type: string
                         required:
                         - role
@@ -76,6 +81,7 @@ spec:
                 type: array
               version:
                 description: Prometheus image version deployed
+                pattern: ^[0-9]+\.[0-9]+\.[0-9]+$
                 type: string
             required:
             - scrape_configs

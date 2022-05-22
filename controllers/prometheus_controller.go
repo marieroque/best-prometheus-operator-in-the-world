@@ -24,9 +24,9 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 
-	"k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	ctrllog "sigs.k8s.io/controller-runtime/pkg/log"
@@ -89,8 +89,25 @@ func (r *PrometheusReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 			log.Error(err, "Failed to create new Deployment", "Deployment.Namespace", dep.Namespace, "Deployment.Name", dep.Name)
 			return ctrl.Result{}, err
 		}
-		// Deployment created successfully - return and requeue
-		return ctrl.Result{Requeue: true}, nil
+		// Deployment created successfully
+		// Check if the configmap already exists, if not create a new one
+		foundConfigMap := &corev1.ConfigMap{}
+		err = r.Get(ctx, types.NamespacedName{Name: prometheus.Name + "-configmap", Namespace: prometheus.Namespace}, foundConfigMap)
+		if err != nil && errors.IsNotFound(err) {
+			// Define a new configmap
+			cfm := r.configmapForPrometheus(prometheus)
+			log.Info("Creating a new Configmap", "Configmap.Namespace", cfm.Namespace, "Configmap.Name", cfm.Name)
+			err = r.Create(ctx, cfm)
+			if err != nil {
+				log.Error(err, "Failed to create new Configmap", "Configmap.Namespace", cfm.Namespace, "Configmap.Name", cfm.Name)
+				return ctrl.Result{}, err
+			}
+			// Configmap created successfully - return and requeue
+			return ctrl.Result{Requeue: true}, nil
+		} else if err != nil {
+			log.Error(err, "Failed to get Configmap")
+			return ctrl.Result{}, err
+		}
 	} else if err != nil {
 		log.Error(err, "Failed to get Deployment")
 		return ctrl.Result{}, err
@@ -110,25 +127,6 @@ func (r *PrometheusReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 		// Spec updated return and requeue
 		// Requeue for any reason other than an error
 		return ctrl.Result{Requeue: true}, nil
-	}
-
-	// Check if the configmap already exists, if not create a new one
-	foundConfigMap := &corev1.ConfigMap{}
-	err = r.Get(ctx, types.NamespacedName{Name: prometheus.Name + "-configmap", Namespace: prometheus.Namespace}, foundConfigMap)
-	if err != nil && errors.IsNotFound(err) {
-		// Define a new configmap
-		cfm := r.configmapForPrometheus(prometheus)
-		log.Info("Creating a new Configmap", "Configmap.Namespace", cfm.Namespace, "Configmap.Name", cfm.Name)
-		err = r.Create(ctx, cfm)
-		if err != nil {
-			log.Error(err, "Failed to create new Configmap", "Configmap.Namespace", cfm.Namespace, "Configmap.Name", cfm.Name)
-			return ctrl.Result{}, err
-		}
-		// Configmap created successfully - return and requeue
-		return ctrl.Result{Requeue: true}, nil
-	} else if err != nil {
-		log.Error(err, "Failed to get Configmap")
-		return ctrl.Result{}, err
 	}
 
 	return ctrl.Result{}, nil
