@@ -77,9 +77,28 @@ func (r *PrometheusReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 		return ctrl.Result{}, err
 	}
 
+	// Check if the configmap already exists, if not create a new one
+	foundConfigMap := &corev1.ConfigMap{}
+	err = r.Get(ctx, types.NamespacedName{Name: prometheus.Name + "-configmap", Namespace: prometheus.Namespace}, foundConfigMap)
+	if err != nil && errors.IsNotFound(err) {
+		// Define a new configmap
+		cfm := r.configmapForPrometheus(prometheus)
+		log.Info("Creating a new Configmap", "Configmap.Namespace", cfm.Namespace, "Configmap.Name", cfm.Name)
+		err = r.Create(ctx, cfm)
+		if err != nil {
+			log.Error(err, "Failed to create new Configmap", "Configmap.Namespace", cfm.Namespace, "Configmap.Name", cfm.Name)
+			return ctrl.Result{}, err
+		}
+		// Configmap created successfully - return and requeue
+		return ctrl.Result{Requeue: true}, nil
+	} else if err != nil {
+		log.Error(err, "Failed to get Configmap")
+		return ctrl.Result{}, err
+	}
+
 	// Check if the deployment already exists, if not create a new one
-	found := &appsv1.Deployment{}
-	err = r.Get(ctx, types.NamespacedName{Name: prometheus.Name, Namespace: prometheus.Namespace}, found)
+	foundDeployment := &appsv1.Deployment{}
+	err = r.Get(ctx, types.NamespacedName{Name: prometheus.Name, Namespace: prometheus.Namespace}, foundDeployment)
 	if err != nil && errors.IsNotFound(err) {
 		// Define a new deployment
 		dep := r.deploymentForPrometheus(prometheus)
@@ -89,25 +108,8 @@ func (r *PrometheusReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 			log.Error(err, "Failed to create new Deployment", "Deployment.Namespace", dep.Namespace, "Deployment.Name", dep.Name)
 			return ctrl.Result{}, err
 		}
-		// Deployment created successfully
-		// Check if the configmap already exists, if not create a new one
-		foundConfigMap := &corev1.ConfigMap{}
-		err = r.Get(ctx, types.NamespacedName{Name: prometheus.Name + "-configmap", Namespace: prometheus.Namespace}, foundConfigMap)
-		if err != nil && errors.IsNotFound(err) {
-			// Define a new configmap
-			cfm := r.configmapForPrometheus(prometheus)
-			log.Info("Creating a new Configmap", "Configmap.Namespace", cfm.Namespace, "Configmap.Name", cfm.Name)
-			err = r.Create(ctx, cfm)
-			if err != nil {
-				log.Error(err, "Failed to create new Configmap", "Configmap.Namespace", cfm.Namespace, "Configmap.Name", cfm.Name)
-				return ctrl.Result{}, err
-			}
-			// Configmap created successfully - return and requeue
-			return ctrl.Result{Requeue: true}, nil
-		} else if err != nil {
-			log.Error(err, "Failed to get Configmap")
-			return ctrl.Result{}, err
-		}
+		// Deployment created successfully - return and requeue
+		return ctrl.Result{Requeue: true}, nil
 	} else if err != nil {
 		log.Error(err, "Failed to get Deployment")
 		return ctrl.Result{}, err
@@ -116,12 +118,12 @@ func (r *PrometheusReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 	// This point, we have the deployment object created
 	// Ensure the image version is same as the spec
 	img := container_image + ":v" + *prometheus.Spec.Version
-	if found.Spec.Template.Spec.Containers[0].Image != img {
-		found.Spec.Template.Spec.Containers[0].Image = img
-		log.Info("Updating Deployment", "Deployment.Namespace", found.Namespace, "Deployment.Name", found.Name)
-		err = r.Update(ctx, found)
+	if foundDeployment.Spec.Template.Spec.Containers[0].Image != img {
+		foundDeployment.Spec.Template.Spec.Containers[0].Image = img
+		log.Info("Updating Deployment", "Deployment.Namespace", foundDeployment.Namespace, "Deployment.Name", foundDeployment.Name)
+		err = r.Update(ctx, foundDeployment)
 		if err != nil {
-			log.Error(err, "Failed to update Deployment", "Deployment.Namespace", found.Namespace, "Deployment.Name", found.Name)
+			log.Error(err, "Failed to update Deployment", "Deployment.Namespace", foundDeployment.Namespace, "Deployment.Name", foundDeployment.Name)
 			return ctrl.Result{}, err
 		}
 		// Spec updated return and requeue
